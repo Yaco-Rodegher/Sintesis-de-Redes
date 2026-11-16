@@ -1,0 +1,305 @@
+# Eliptica- filtro pasabajos
+import numpy as np
+import scipy.signal as signal
+from scipy.optimize import minimize_scalar
+import matplotlib.pyplot as plt
+import sympy as sp
+
+#  Especificaciones de diseño 
+fp = 1000                  
+fs = 4000                  
+Ap = 1.0                   
+As = 24.0                
+orden_requerido = 3       
+
+
+wp = 2 * np.pi * fp
+ws = 2 * np.pi * fs
+
+# 2. Cálculo del orden y síntesis matemática (Elíptica / Cauer)
+N_min, Wn = signal.ellipord(wp, ws, Ap, As, analog=True)
+N = orden_requerido  
+z, p, k = signal.ellip(N, Ap, As, Wn, btype='low', analog=True, output='zpk')
+b, a = signal.zpk2tf(z, p, k)
+sos = signal.zpk2sos(z, p, k, analog=True)  
+
+print('=' * 65)
+print('DISEÑO MATEMÁTICO DEL FILTRO PASA BAJOS ELÍPTICO')
+print(f'Frecuencias: fp = {fp} Hz; fs = {fs} Hz')
+print(f'Frecuencias angulares: wp = {wp:.6f}; ws = {ws:.6f} rad/s')
+print(f'Orden mínimo según ellipord: {N_min}')
+print(f'Orden adoptado: {N}')
+print(f'Frecuencia de diseño Wn: {Wn:.6f} rad/s ({Wn/(2*np.pi):.3f} Hz)')
+print(f'Ganancia ZPK (k): {k:.10e}')
+print('=' * 65)
+
+print('\n--- Ceros de transmisión [rad/s] ---')
+for i, cero in enumerate(z, 1):
+    print(f'  z_{i} = {cero.real:+.6e} {cero.imag:+.6e}j')
+
+print('\n--- Polos del sistema [rad/s] ---')
+for i, polo in enumerate(p, 1):
+    print(f'  p_{i} = {polo.real:+.6e} {polo.imag:+.6e}j')
+
+print('\n--- Función de transferencia polinómica H(s) = B(s)/A(s) ---')
+print('Numerador B(s), potencias descendentes:', b)
+print('Denominador A(s), potencias descendentes:', a)
+
+print('\n--- Descomposición en secciones (SOS analógicas) ---')
+for i, sec in enumerate(sos, 1):
+    b_sec, a_sec = sec[:3], sec[3:]
+    print(f'\nSección {i}:')
+    print(f'  Num(s) = {b_sec[0]:.6e}*s^2 + {b_sec[1]:.6e}*s + {b_sec[2]:.6e}')
+    print(f'  Den(s) = {a_sec[0]:.6e}*s^2 + {a_sec[1]:.6e}*s + {a_sec[2]:.6e}')
+    if np.isclose(a_sec[0], 0):
+        polo_1 = a_sec[2] / a_sec[1]
+        print(f'  Etapa de primer orden: wpolo = {polo_1:.4f} rad/s')
+    else:
+        w0 = np.sqrt(a_sec[2] / a_sec[0])
+        Q = w0 * a_sec[0] / a_sec[1]
+        print(f'  w0 = {w0:.4f} rad/s; f0 = {w0/(2*np.pi):.4f} Hz; Q = {Q:.5f}')
+
+s = sp.symbols('s')
+H_sym = (
+    sum(sp.Float(float(coef), 15)*s**(len(b)-1-i) for i, coef in enumerate(b)) /
+    sum(sp.Float(float(coef), 15)*s**(len(a)-1-i) for i, coef in enumerate(a))
+)
+print('\n' + '=' * 65)
+print('Función de transferencia H(s) desarrollada:')
+print(H_sym)
+print('=' * 65)
+
+#  Evaluación de la respuesta en frecuencia
+.
+f_eval = np.concatenate(([0.0], np.logspace(0, 6, 12000)))
+w_eval = f_eval * 2 * np.pi
+w, h = signal.freqs_zpk(z, p, k, worN=w_eval)
+mag_dB = 20 * np.log10(np.maximum(np.abs(h), np.finfo(float).tiny))
+phase_rad = np.unwrap(np.angle(h))
+phase_deg = np.degrees(phase_rad)
+
+f_gd = f_eval[1:]
+w_gd = w_eval[1:]
+group_delay = -np.gradient(phase_rad[1:], w_gd)
+
+def ganancia_dB(frecuencia_hz):
+    _, hh = signal.freqs_zpk(z, p, k, worN=[2*np.pi*frecuencia_hz])
+    return 20*np.log10(max(abs(hh[0]), np.finfo(float).tiny))
+
+def extremos_banda(f_grid, y_grid):
+    puntos = [(float(f_grid[0]), float(y_grid[0])),
+              (float(f_grid[-1]), float(y_grid[-1]))]
+    delta = np.diff(y_grid)
+    cambios = np.flatnonzero(delta[:-1]*delta[1:] < 0) + 1
+    for ix in cambios:
+        izq, der = float(f_grid[ix-1]), float(f_grid[ix+1])
+        es_maximo = y_grid[ix] > y_grid[ix-1]
+        obj = (lambda ff: -ganancia_dB(ff)) if es_maximo else ganancia_dB
+        r = minimize_scalar(obj, bounds=(izq, der), method='bounded')
+        if r.success:
+            puntos.append((float(r.x), float(ganancia_dB(r.x))))
+    return puntos
+
+f_paso = np.linspace(0, fp, 7001)
+y_paso = np.array([ganancia_dB(f) for f in f_paso])
+f_rechazo = np.geomspace(fs, 1e6, 14000)
+y_rechazo = np.array([ganancia_dB(f) for f in f_rechazo])
+ex_p = extremos_banda(f_paso, y_paso)
+ex_s = extremos_banda(f_rechazo, y_rechazo)
+max_p = max(ex_p, key=lambda par: par[1])
+min_p = min(ex_p, key=lambda par: par[1])
+max_s = max(ex_s, key=lambda par: par[1])
+
+print('\n--- Verificación de bandas (ganancia referida a 0 dB) ---')
+for f in [0, 500, fp, 1500, 2000, 3000, fs, 8000]:
+    print(f'  f = {f:7.1f} Hz: {ganancia_dB(f):+9.4f} dB')
+print(f'Banda de paso: máximo {max_p[1]:.6f} dB a {max_p[0]:.3f} Hz')
+print(f'Banda de paso: mínimo {min_p[1]:.6f} dB a {min_p[0]:.3f} Hz')
+print(f'Banda de rechazo: máximo {max_s[1]:.6f} dB a {max_s[0]:.3f} Hz')
+tol = 1e-7
+cumple_p = (max_p[1] <= tol) and (min_p[1] >= -Ap - tol)
+cumple_s = max_s[1] <= -As + tol
+print(f'Cumple banda de paso: {cumple_p}')
+print(f'Cumple banda de rechazo: {cumple_s}')
+print('Nota: rechazo evaluado hasta 1 MHz; el límite asintótico es -infinito dB.')
+
+
+fig, axs = plt.subplots(2, 2, figsize=(16, 12))
+(ax1, ax2), (ax3, ax4) = axs
+
+
+ax1.semilogx(f_eval[1:], mag_dB[1:], color='#1f77b4', linewidth=2)
+ax1.set_title('Magnitud en dB (Pasa Bajos Elíptico)', fontsize=14, fontweight='bold')
+ax1.set_ylabel('Magnitud [dB]', fontsize=12)
+ax1.set_xlabel('Frecuencia [Hz]', fontsize=12)
+ax1.grid(True, which='both', linestyle='--', alpha=0.7)
+ax1.axhline(-Ap, color='green', linestyle=':', linewidth=2, label=f'Ap = {Ap} dB')
+ax1.axhline(-As, color='red', linestyle=':', linewidth=2, label=f'As = {As} dB')
+ax1.axvspan(1, fp, color='green', alpha=0.07, label='Banda de paso')
+ax1.axvspan(fs, f_eval[-1], color='red', alpha=0.05, label='Banda de rechazo')
+ax1.axvline(fp, color='green', linestyle='--', alpha=.7)
+ax1.axvline(fs, color='red', linestyle='--', alpha=.7)
+ax1.legend(loc='lower left')
+ax1.set_ylim([-70, 5])
+
+ax2.semilogx(f_eval[1:], phase_deg[1:], color='#ff7f0e', linewidth=2)
+ax2.set_title('Fase Desenrollada', fontsize=14, fontweight='bold')
+ax2.set_ylabel('Fase [grados]', fontsize=12)
+ax2.set_xlabel('Frecuencia [Hz]', fontsize=12)
+ax2.grid(True, which='both', linestyle='--', alpha=0.7)
+
+ax3.semilogx(f_gd, group_delay*1000, color='#9467bd', linewidth=2)
+ax3.set_title('Retardo de Grupo (cuidado cerca del cero de transmisión)', fontsize=13,
+              fontweight='bold')
+ax3.set_ylabel('Retardo [ms]', fontsize=12)
+ax3.set_xlabel('Frecuencia [Hz]', fontsize=12)
+ax3.set_xlim([10, 1e5])
+ax3.set_ylim([-1, 5])  
+ax3.grid(True, which='both', linestyle='--', alpha=0.7)
+
+
+scale_factor = 1e4
+ax4.scatter(np.real(z)/scale_factor, np.imag(z)/scale_factor,
+            s=90, marker='o', facecolors='none', edgecolors='blue',
+            linewidths=2, label='Ceros')
+ax4.scatter(np.real(p)/scale_factor, np.imag(p)/scale_factor,
+            s=90, marker='x', color='red', linewidths=2, label='Polos')
+ax4.axvline(0, color='black', linewidth=1.2)
+ax4.axhline(0, color='black', linewidth=1.2)
+ax4.set_title('Diagrama de Polos y Ceros (Plano S)', fontsize=14, fontweight='bold')
+ax4.set_xlabel(r'Parte Real $\sigma$ ($\times 10^4$)', fontsize=12)
+ax4.set_ylabel(r'Parte Imaginaria $j\omega$ ($\times 10^4$)', fontsize=12)
+ax4.grid(True, linestyle='--', alpha=0.7)
+ax4.legend(loc='upper left')
+fig.tight_layout()
+
+fig_ripple, (ax_zoom1, ax_zoom2) = plt.subplots(1, 2, figsize=(14, 5))
+mask1 = f_eval <= fp * 1.10
+ax_zoom1.plot(f_eval[mask1], mag_dB[mask1], linewidth=2)
+ax_zoom1.axhline(0, color='gray', linestyle='--', linewidth=1)
+ax_zoom1.axhline(-Ap, color='green', linestyle=':', linewidth=1.5)
+ax_zoom1.axvline(fp, color='green', linestyle='--', linewidth=1.2)
+ax_zoom1.set_title('Rizado de paso: 0 a 1000 Hz', fontsize=12, fontweight='bold')
+ax_zoom1.set_xlabel('Frecuencia [Hz]')
+ax_zoom1.set_ylabel('Magnitud [dB]')
+ax_zoom1.set_ylim([-1.5, 0.5])
+ax_zoom1.grid(True, linestyle='--', alpha=0.7)
+
+mask2 = (f_eval >= 1000) & (f_eval <= 20000)
+ax_zoom2.semilogx(f_eval[mask2], mag_dB[mask2], linewidth=2)
+ax_zoom2.axhline(-As, color='red', linestyle=':', linewidth=1.5,
+                 label=f'Límite -{As} dB')
+ax_zoom2.axvline(fs, color='red', linestyle='--', linewidth=1.2, label='fs = 4000 Hz')
+ax_zoom2.set_title('Transición y rechazo: 1000 a 20000 Hz', fontsize=12,
+                   fontweight='bold')
+ax_zoom2.set_xlabel('Frecuencia [Hz]')
+ax_zoom2.set_ylabel('Magnitud [dB]')
+ax_zoom2.set_ylim([-80, 5])
+ax_zoom2.legend()
+ax_zoom2.grid(True, which='both', linestyle='--', alpha=0.7)
+fig_ripple.tight_layout()
+
+# --- Análisis temporal: respuesta al escalón ---
+sistema = signal.ZerosPolesGain(z, p, k)
+t = np.linspace(0, 0.012, 2500)
+t, y_step = signal.step(sistema, T=t)
+fig2, ax5 = plt.subplots(figsize=(10, 5))
+ax5.plot(t*1000, y_step, color='#d62728', linewidth=2)
+ax5.axhline(1, color='gray', linestyle='--', label='Valor final = 1')
+ax5.set_title('Comportamiento Temporal: Respuesta al Escalón', fontsize=14,
+              fontweight='bold')
+ax5.set_xlabel('Tiempo [ms]', fontsize=12)
+ax5.set_ylabel('Amplitud', fontsize=12)
+ax5.legend()
+ax5.grid(True, linestyle='--', alpha=0.7)
+fig2.tight_layout()
+
+
+alpha, beta, d, gamma, KH, KL = sp.symbols('alpha beta d gamma KH KL', positive=True)
+H_circ = gamma*(KH*s**2 + KL*alpha*beta) / (
+    (s + gamma)*(s**2 + d*alpha*s + alpha*beta)
+)
+print('\n--- Función de transferencia CIRCUITAL derivada simbólicamente ---')
+print(sp.factor(H_circ))
+
+# Parámetros circuitales obtenidos de los polos y ceros
+p_real = float(np.real(p[np.argmin(np.abs(np.imag(p)))]))
+p_cplx = p[np.argmax(np.imag(p))]
+gamma_val = -p_real
+omega0_sq = float(np.abs(p_cplx)**2)
+a1_val = -2 * float(p_cplx.real)
+alpha_val = beta_val = np.sqrt(omega0_sq)
+d_val = a1_val / alpha_val
+KH_val = float(k/gamma_val)
+KL_val = float(np.real(k*(abs(z[0])**2)/(gamma_val*omega0_sq)))
+
+Rint = 10000.0
+Cint = 1/(Rint*alpha_val)
+Rbp = Rint/d_val
+Rhp_out = Rint/KH_val
+Rlp_out = Rint/KL_val
+C3 = 1/(Rint*gamma_val)
+
+print('\n--- Parámetros del circuito y valores ideales ---')
+print(f'alpha = beta = {alpha_val:.6f} 1/s; d = {d_val:.9f}')
+print(f'gamma = {gamma_val:.6f} 1/s; KH = {KH_val:.9f}; KL = {KL_val:.9f}')
+print(f'Integradores: R = {Rint:.0f} ohm; C1 = C2 = {Cint*1e9:.6f} nF')
+print(f'Sumador HP: Rf = 10 kohm, Rin(Vin) = 10 kohm, '
+      f'Rin(-BP) = {Rbp/1000:.6f} kohm, Rin(LP) = 10 kohm')
+print(f'Sumador salida: Rf = 10 kohm, Rin(HP) = {Rhp_out/1000:.6f} kohm, '
+      f'Rin(LP) = {Rlp_out/1000:.6f} kohm')
+print(f'RC primer orden (con buffer): R3 = 10 kohm, C3 = {C3*1e9:.6f} nF')
+
+H_circ_num = sp.factor(H_circ.subs({
+    alpha: alpha_val, beta: beta_val, d: d_val,
+    gamma: gamma_val, KH: KH_val, KL: KL_val
+}))
+print('H_circuito(s) con los valores calculados:')
+print(H_circ_num)
+
+# 
+fc = np.geomspace(1, 1e5, 500)
+h_ideal = signal.freqs_zpk(z, p, k, worN=2*np.pi*fc)[1]
+h_circuito = sp.lambdify(s, H_circ_num, 'numpy')(1j*2*np.pi*fc)
+error_abs = np.max(np.abs(h_ideal - h_circuito))
+print(f'Máximo error absoluto H_ideal - H_circuito: {error_abs:.3e}')
+
+#  Análisis de sensibilidades normalizadas
+# 
+print('\n--- Sensibilidades simbólicas ---')
+for param in [alpha, beta, d, gamma, KH, KL]:
+    S = sp.factor((param/H_circ)*sp.diff(H_circ, param))
+    print(f'S_{param}^H(s) = {S}')
+print('Para integradores: S_R1 = S_C1 = -S_alpha; S_R2 = S_C2 = -S_beta.')
+print('Para etapa RC: S_R3 = S_C3 = -S_gamma.')
+print('Sensibilidad de magnitud: dGdB/d(ln x) = (20/ln 10)*Re[S_x^H(jw)].')
+
+
+param_nom = {alpha:alpha_val, beta:beta_val, d:d_val,
+             gamma:gamma_val, KH:KH_val, KL:KL_val}
+H_fun = sp.lambdify((s, alpha, beta, d, gamma, KH, KL), H_circ, 'numpy')
+print('\n--- Sensibilidades por perturbación de parámetros +/-1% ---')
+for f in [500, 1000, 4000]:
+    print(f'\nFrecuencia = {f} Hz')
+    for param in [alpha, beta, d, gamma, KH, KL]:
+        v_nom = param_nom[param]
+        vals = []
+        for factor in [0.99, 1.01]:
+            new = param_nom.copy()
+            new[param] = v_nom*factor
+            hh = H_fun(1j*2*np.pi*f, *(new[x] for x in [alpha,beta,d,gamma,KH,KL]))
+            vals.append(20*np.log10(np.abs(hh)))
+        print(f'  {param}: -1% => {vals[0]:+.4f} dB; +1% => {vals[1]:+.4f} dB')
+
+print('\n' + '=' * 65)
+print('ANÁLISIS DEL FILTRO ELÍPTICO (CAUER)')
+print('=' * 65)
+print('1. Selectividad: rizado de paso y ceros de transmisión permiten transición rápida.')
+print(f'2. Rizado de paso: aproximadamente entre 0 y -{Ap} dB.')
+print(f'3. Rechazo: por debajo de -{As} dB a partir de {fs} Hz.')
+print('4. La sección de orden 2 contiene un cero de transmisión en el eje jw.')
+print('5. El orden mínimo es 2; se adopta orden 3 por requerimiento del trabajo.')
+print('6. Componentes comerciales y AO reales requieren nueva verificación de tolerancias.')
+print('=' * 65)
+
+plt.show()
