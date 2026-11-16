@@ -1,0 +1,183 @@
+# Eliptica- Rechazabanda 
+import numpy as np
+import scipy.signal as signal
+import matplotlib.pyplot as plt
+import sympy as sp
+
+#  Especificaciones de diseño 
+fp1, fp2 = 500, 5500   
+fs1, fs2 = 1200, 2400  
+Ap = 1.0             
+As = 24.0            
+
+wp = np.array([fp1, fp2]) * 2 * np.pi
+ws = np.array([fs1, fs2]) * 2 * np.pi
+
+#  Cálculo del orden y síntesis matemática 
+N, Wn = signal.ellipord(wp, ws, Ap, As, analog=True)
+z, p, k = signal.ellip(N, Ap, As, Wn, btype='bandstop', analog=True, output='zpk')
+b_coef, a_coef = signal.ellip(N, Ap, As, Wn, btype='bandstop', analog=True, output='ba')
+
+#  Resultados del Diseño Matemático 
+print("=" * 60)
+print(f"Orden del prototipo (N): {N}")
+print(f"Orden total del filtro rechazabanda: {2 * N}")
+print(f"Ganancia (k): {k:.6e}")
+print("=" * 60)
+
+print("\n--- Ceros de transmisión [rad/s] ---")
+for i, cero in enumerate(z, 1):
+    print(f"  z_{i} = {np.real(cero):+.4e} + {np.imag(cero):+.4e}j")
+
+print("\n--- Polos del sistema [rad/s] ---")
+for i, polo in enumerate(p, 1):
+    print(f"  p_{i} = {np.real(polo):+.4e} + {np.imag(polo):+.4e}j")
+
+# Secciones de segundo orden 
+sos = signal.zpk2sos(z, p, k)
+print("\n--- Descomposición en Secciones de Segundo Orden (SOS) ---")
+for i, sec in enumerate(sos, 1):
+    b_sec, a_sec = sec[:3], sec[3:]
+    w0 = np.sqrt(a_sec[2])
+    Q = w0 / a_sec[1]
+    print(f"\nSección {i}:")
+    print(f"  Num(s): {b_sec[0]:.4e}*s^2 + {b_sec[1]:.4e}*s + {b_sec[2]:.4e}")
+    print(f"  Den(s): {a_sec[0]:.4e}*s^2 + {a_sec[1]:.4e}*s + {a_sec[2]:.4e}")
+    print(f"  w0: {w0:.2f} rad/s (f0 = {w0/(2*np.pi):.2f} Hz) | Q: {Q:.4f}")
+
+# Expresión simbólica de H(s) para copiar en LaTeX
+s = sp.Symbol('s')
+num_sym = sum(float(c) * s**i for i, c in enumerate(reversed(b_coef)))
+den_sym = sum(float(c) * s**i for i, c in enumerate(reversed(a_coef)))
+H_sym = num_sym / den_sym
+
+print("\n" + "=" * 60)
+print("Función de transferencia H(s) desarrollada:")
+print(H_sym)
+print("=" * 60)
+
+# Evaluación de la respuesta en frecuencia
+f_eval = np.logspace(1, 5, 2000)
+w_eval = f_eval * 2 * np.pi
+w, h = signal.freqs_zpk(z, p, k, worN=w_eval)
+
+mag_dB = 20 * np.log10(np.abs(h))
+phase_rad = np.unwrap(np.angle(h))
+phase_deg = np.degrees(phase_rad)
+
+dw = np.diff(w)
+group_delay = -np.diff(phase_rad) / dw
+w_gd = w[:-1]
+f_gd = f_eval[:-1]
+
+# Representación gráfica ampliada (
+fig, axs = plt.subplots(2, 2, figsize=(16, 12))
+(ax1, ax2), (ax3, ax4) = axs
+
+
+ax1.semilogx(f_eval, mag_dB, color='#1f77b4', linewidth=2)
+ax1.set_title('Magnitud en dB (Filtro Elíptico)', fontsize=14, fontweight='bold')
+ax1.set_ylabel('Magnitud [dB]', fontsize=12)
+ax1.set_xlabel('Frecuencia [Hz]', fontsize=12)
+ax1.grid(True, which='both', linestyle='--', alpha=0.7)
+ax1.axhline(-Ap, color='green', linestyle=':', linewidth=2, label=f'Ap = {Ap} dB')
+ax1.axhline(-As, color='red', linestyle=':', linewidth=2, label=f'As = {As} dB')
+ax1.axvspan(fp1, fp2, color='green', alpha=0.05, label='Banda de paso teórica')
+ax1.axvspan(fs1, fs2, color='red', alpha=0.05, label='Banda de rechazo teórica')
+ax1.legend(loc='lower left')
+ax1.set_ylim([-40, 5])
+
+ax2.semilogx(f_eval, phase_deg, color='#ff7f0e', linewidth=2)
+ax2.set_title('Fase Desenrollada', fontsize=14, fontweight='bold')
+ax2.set_ylabel('Fase [grados]', fontsize=12)
+ax2.set_xlabel('Frecuencia [Hz]', fontsize=12)
+ax2.grid(True, which='both', linestyle='--', alpha=0.7)
+
+ax3.semilogx(f_gd, group_delay * 1000, color='#9467bd', linewidth=2)
+ax3.set_title('Retardo de Grupo', fontsize=14, fontweight='bold')
+ax3.set_ylabel('Retardo [ms]', fontsize=12)
+ax3.set_xlabel('Frecuencia [Hz]', fontsize=12)
+ax3.grid(True, which='both', linestyle='--', alpha=0.7)
+
+scale_factor = 1e4
+ax4.scatter(np.real(z)/scale_factor, np.imag(z)/scale_factor,
+            s=80, marker='o', facecolors='none', edgecolors='blue', linewidths=2, label='Ceros')
+ax4.scatter(np.real(p)/scale_factor, np.imag(p)/scale_factor,
+            s=80, marker='x', color='red', linewidths=2, label='Polos')
+
+ax4.axvline(0, color='black', linewidth=1.5, alpha=0.8) 
+ax4.axhline(0, color='black', linewidth=1.5, alpha=0.8) 
+ax4.set_title('Diagrama de Polos y Ceros (Plano S)', fontsize=14, fontweight='bold')
+ax4.set_xlabel(r'Parte Real $\sigma$ ($\times 10^4$)', fontsize=12)
+ax4.set_ylabel(r'Parte Imaginaria $j\omega$ ($\times 10^4$)', fontsize=12)
+ax4.grid(True, linestyle='--', alpha=0.7)
+ax4.legend(loc='upper left')
+
+plt.tight_layout()
+plt.show()
+
+#  Análisis de Comportamiento Temporal 
+sistema = signal.ZerosPolesGain(z, p, k)
+t, y_step = signal.step(sistema)
+
+fig2, ax5 = plt.subplots(figsize=(10, 5))
+ax5.plot(t, y_step, color='#d62728', linewidth=2)
+ax5.set_title('Comportamiento Temporal: Respuesta al Escalón', fontsize=14, fontweight='bold')
+ax5.set_xlabel('Tiempo [s]', fontsize=12)
+ax5.set_ylabel('Amplitud', fontsize=12)
+ax5.grid(True, linestyle='--', alpha=0.7)
+plt.tight_layout()
+plt.show()
+
+# Figura Independiente: Zoom del Rizado en Bandas de Paso
+fig_ripple, (ax_zoom1, ax_zoom2) = plt.subplots(1, 2, figsize=(14, 5))
+
+# Zoom 1: Primera banda de paso (0 a 600 Hz)
+mask1 = f_eval <= fp1 * 1.2
+ax_zoom1.plot(f_eval[mask1], mag_dB[mask1], color='#1f77b4', linewidth=2)
+ax_zoom1.axhline(0, color='gray', linestyle='--', linewidth=1)
+ax_zoom1.axhline(-Ap, color='green', linestyle=':', linewidth=1.5, label=f'-Ap = -{Ap} dB')
+ax_zoom1.axvline(fp1, color='green', linestyle='--', linewidth=1.2, label=f'fp1 = {fp1} Hz')
+ax_zoom1.set_title(r'Rizado en Banda de Paso Inferior ($f \leq 500$ Hz)', fontsize=12, fontweight='bold')
+ax_zoom1.set_xlabel('Frecuencia [Hz]', fontsize=11)
+ax_zoom1.set_ylabel('Magnitud [dB]', fontsize=11)
+ax_zoom1.set_ylim(-1.5, 0.5)
+ax_zoom1.grid(True, which='both', linestyle='--', alpha=0.7)
+ax_zoom1.legend(loc='lower left')
+
+# Zoom 2: Segunda banda de paso (5000 Hz a 20 kHz)
+mask2 = (f_eval >= fp2 * 0.9) & (f_eval <= 20000)
+ax_zoom2.plot(f_eval[mask2], mag_dB[mask2], color='#1f77b4', linewidth=2)
+ax_zoom2.axhline(0, color='gray', linestyle='--', linewidth=1)
+ax_zoom2.axhline(-Ap, color='green', linestyle=':', linewidth=1.5, label=f'-Ap = -{Ap} dB')
+ax_zoom2.axvline(fp2, color='green', linestyle='--', linewidth=1.2, label=f'fp2 = {fp2} Hz')
+ax_zoom2.set_title(r'Rizado en Banda de Paso Superior ($f \geq 5500$ Hz)', fontsize=12, fontweight='bold')
+ax_zoom2.set_xlabel('Frecuencia [Hz]', fontsize=11)
+ax_zoom2.set_ylabel('Magnitud [dB]', fontsize=11)
+ax_zoom2.set_ylim(-1.5, 0.5)
+ax_zoom2.grid(True, which='both', linestyle='--', alpha=0.7)
+ax_zoom2.legend(loc='lower right')
+
+plt.tight_layout()
+plt.show()
+
+print("\n" + "=" * 60)
+print("ANÁLISIS DE FILTRO ELÍPTICO (CAUER)")
+print("=" * 60)
+print("1. Selectividad:")
+print("   La aproximación elíptica ofrece la mayor selectividad (caída más abrupta)")
+print("   posible para un orden dado en comparación con Butterworth o Chebyshev.")
+print("   Esto permite cumplir con la atenuación As=24dB en una banda de transición muy estrecha.")
+
+print("\n2. Rizado (Ripple):")
+print("   Presenta rizado equiripple en ambas bandas:")
+print(f"   - Banda de paso: oscila entre 0 y -{Ap} dB.")
+print(f"   - Banda de rechazo: oscila por debajo de -{As} dB.")
+
+print("\n3. Comportamiento Temporal:")
+print("   Debido a su alta selectividad y la ubicación de sus polos (cercanos al eje jw),")
+print("   la fase es altamente no lineal cerca de las frecuencias de corte, lo que genera")
+print("   picos severos en el retardo de grupo. En el dominio del tiempo (ver gráfico),")
+print("   esto se traduce en un fuerte 'ringing' (sobreimpulso y oscilaciones prolongadas)")
+print("   ante entradas transitorias como un escalón.")
+print("=" * 60)
