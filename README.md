@@ -1,4 +1,4 @@
-# [Filtro Activo de Butterworth, Pasabajo de 1 kHz]
+# Filtro Activo de Butterworth, Pasabajo de 1 kHz
 > **Asignatura:** Sintesis de Redes Activas - Universidad Nacional de Córdoba
 > **Integrantes:** >
 >  * Quintero,Jonathan Damian
@@ -19,12 +19,13 @@ Para aplicaciones de audio, de ganancia unitaria y carga mínima de 6 ohms
 ###  Hardware 
 
 * **Esquemático del Circuito:** 
-  `![Esquemático Completo](hardware/esquematico.png)`
+  ![Esquemático Completo](https://github.com/Yaco-Rodegher/Sintesis-de-Redes/blob/eb482bf34a5081d0f38e42e916bf66eefe4ed859/Esquemas/Esquematico%20de%20filtro.png)`
 * **Consideraciones de Diseño:** Se añadio una ultima etapa para normalizar la ganancia del circuito,
 *  con un divisor de tensión y una realimentación unitaria
 
+###  Google Collab:
 
-
+https://colab.research.google.com/drive/1nJKXVZwFNlXSYXvDSZrQWZm0XDFFcOY5?usp=sharing
 
 ###  Parámetros de Alimentación y Consumo 
 * **Tensión de operación del sistema:** +/- 6V
@@ -34,8 +35,9 @@ Para aplicaciones de audio, de ganancia unitaria y carga mínima de 6 ohms
 ---
 
 ##  Ensayos, Pruebas y Resultados 
-
-
-
+Onda resultante 1V  de amplitud y frecuencia de 100 Hz
+ ![](https://github.com/Yaco-Rodegher/Sintesis-de-Redes/blob/eb482bf34a5081d0f38e42e916bf66eefe4ed859/Esquemas/Salida%20del%20filtro.jpeg)
+ Onda resultante 1V de amplitud y frecuencia de 8 kHz
+ ![]( https://github.com/Yaco-Rodegher/Sintesis-de-Redes/blob/7a37b2567452c8a64fd0b71ce93bb25e09b47e7a/Esquemas/salida%20de%208k.jpeg)
 ---
 
