@@ -1,0 +1,133 @@
+#Chevishev I ,
+import numpy as np
+import scipy.signal as signal
+import pandas as pd
+import sympy as sp
+import matplotlib.pyplot as plt
+
+
+#  ESPECIFICACIONES de Diseño
+
+Ap = 1.0
+As = 24.0
+fp = 1000.0
+fs = 4000.0
+
+wp = 2 * np.pi * fp
+ws = 2 * np.pi * fs
+
+
+# CÁLCULOS MATEMÁTICOS
+
+N, wn = signal.cheb1ord(wp, ws, Ap, As, analog=True)
+
+# Polinomios (H(s)), Secciones (SOS) y Ceros/Polos/Ganancia (ZPK)
+num, den = signal.cheby1(N, Ap, wn, btype='low', analog=True, output='ba')
+sos = signal.cheby1(N, Ap, wn, btype='low', analog=True, output='sos')
+z, p, k = signal.cheby1(N, Ap, wn, btype='low', analog=True, output='zpk')
+
+
+#  SALIDA EN TERMINAL
+
+df_sos = pd.DataFrame(sos, columns=['b0', 'b1', 'b2', 'a0', 'a1', 'a2'])
+df_sos.index = ['Sección 1 (1er Orden)', 'Sección 2 (2do Orden)']
+print("\n--- COEFICIENTES CIRCUITALES (MATRIZ SOS) ---")
+print(df_sos)
+print("\n")
+
+s = sp.symbols('s')
+num_sym = sum(float(coef) * (s ** (len(num) - 1 - i)) for i, coef in enumerate(num))
+den_sym = sum(float(coef) * (s ** (len(den) - 1 - i)) for i, coef in enumerate(den))
+Ht_final = sp.UnevaluatedExpr(num_sym) / sp.UnevaluatedExpr(den_sym)
+
+print("--- FUNCIÓN DE TRANSFERENCIA H(s) ---")
+sp.pprint(Ht_final)
+print("\n")
+
+
+# 4. CÁLCULO DE RESPUESTAS ADICIONALES 
+f_vec = np.logspace(1, 5, 2000)
+w_vec = 2 * np.pi * f_vec
+
+# Respuesta en frecuencia (Módulo y Fase)
+w_out, h_out = signal.freqs(num, den, worN=w_vec)
+mag_db = 20 * np.log10(np.abs(h_out))
+fase_rad = np.unwrap(np.angle(h_out))
+fase_deg = np.rad2deg(fase_rad)
+
+
+gd = -np.diff(fase_rad) / np.diff(w_out)
+f_vec_gd = f_vec[:-1]  
+
+# Respuesta al Escalón
+t_step, y_step = signal.step((num, den))
+
+
+# GRÁFICOS
+
+fig, axs = plt.subplots(3, 2, figsize=(14, 11))
+
+# --- [0, 0] Módulo General ---
+axs[0, 0].semilogx(f_vec, mag_db, color='navy', lw=2)
+axs[0, 0].axvline(fp, color='red', linestyle='--', label=f'fp = {fp:.0f} Hz')
+axs[0, 0].axvline(fs, color='orange', linestyle='--', label=f'fs = {fs:.0f} Hz')
+axs[0, 0].axhline(-As, color='orange', linestyle=':', label=f'-As = -{As} dB')
+axs[0, 0].set_title('Módulo |H(jw)| (Chebyshev I - Orden 3)')
+axs[0, 0].set_ylabel('Magnitud [dB]')
+axs[0, 0].grid(True, which='both', linestyle=':', alpha=0.6)
+axs[0, 0].legend(loc='lower left')
+
+# --- [0, 1] Mapa de Polos y Ceros ---
+axs[0, 1].scatter(np.real(z), np.imag(z), s=60, edgecolors='blue', facecolors='none', marker='o', label='Ceros')
+axs[0, 1].scatter(np.real(p), np.imag(p), s=60, color='red', marker='x', label='Polos')
+axs[0, 1].axhline(0, color='black', lw=1)
+axs[0, 1].axvline(0, color='black', lw=1)
+axs[0, 1].set_title('Mapa de Polos y Ceros')
+axs[0, 1].set_xlabel('$\sigma$ (Real) [rad/s]')
+axs[0, 1].set_ylabel('$j\omega$ (Imag) [rad/s]')
+axs[0, 1].grid(True, linestyle=':', alpha=0.6)
+axs[0, 1].legend(loc='best')
+
+# --- [1, 0] Zoom al Rizado ---
+axs[1, 0].semilogx(f_vec, mag_db, color='navy', lw=2)
+axs[1, 0].axvline(fp, color='red', linestyle='--', label=f'fp = {fp:.0f} Hz')
+axs[1, 0].axhline(0, color='black', lw=0.8)
+axs[1, 0].axhline(-Ap, color='green', linestyle=':', lw=1.8, label=f'Rizado Ap = -{Ap} dB')
+axs[1, 0].set_xlim(10, 1500)
+axs[1, 0].set_ylim(-1.5, 0.2)
+axs[1, 0].set_title('Detalle del Rizado en Banda de Paso')
+axs[1, 0].set_ylabel('Magnitud [dB]')
+axs[1, 0].grid(True, which='both', linestyle=':', alpha=0.6)
+axs[1, 0].legend(loc='lower left')
+
+# --- [1, 1] Respuesta al Escalón Unitario ---
+# t_step * 1000 para pasar a milisegundos
+axs[1, 1].plot(t_step * 1000, y_step, color='purple', lw=2)
+axs[1, 1].axhline(1, color='black', linestyle='--', alpha=0.6, label='Escalón ideal (1.0)')
+axs[1, 1].set_title('Respuesta al Escalón Unitario')
+axs[1, 1].set_xlabel('Tiempo [ms]')
+axs[1, 1].set_ylabel('Amplitud')
+axs[1, 1].grid(True, linestyle=':', alpha=0.6)
+axs[1, 1].legend(loc='lower right')
+
+# --- [2, 0] Fase Desenrollada ---
+axs[2, 0].semilogx(f_vec, fase_deg, color='darkgreen', lw=2)
+axs[2, 0].axvline(fp, color='red', linestyle='--', label=f'fp = {fp:.0f} Hz')
+axs[2, 0].set_title('Fase Desenrollada')
+axs[2, 0].set_xlabel('Frecuencia [Hz]')
+axs[2, 0].set_ylabel('Fase [grados]')
+axs[2, 0].grid(True, which='both', linestyle=':', alpha=0.6)
+axs[2, 0].legend(loc='lower left')
+
+# --- [2, 1] Retardo de Grupo ---
+# gd * 1000 para graficar en milisegundos
+axs[2, 1].semilogx(f_vec_gd, gd * 1000, color='brown', lw=2)
+axs[2, 1].axvline(fp, color='red', linestyle='--', label=f'fp = {fp:.0f} Hz')
+axs[2, 1].set_title('Retardo de Grupo (Group Delay)')
+axs[2, 1].set_xlabel('Frecuencia [Hz]')
+axs[2, 1].set_ylabel('Retardo [ms]')
+axs[2, 1].grid(True, which='both', linestyle=':', alpha=0.6)
+axs[2, 1].legend(loc='upper right')
+
+plt.tight_layout()
+plt.show()
