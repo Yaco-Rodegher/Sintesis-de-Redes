@@ -1,0 +1,146 @@
+# chebyshev 1 - rechazabanda (BS)
+import numpy as np
+import scipy.signal as signal
+import matplotlib.pyplot as plt
+import sympy as sp
+import pandas as pd
+
+
+# 1. ESPECIFICACIONES DE DISEÑO 
+
+Ap = 1.0   
+As = 24.0  
+
+fp1, fp2 = 500.0, 5500.0   
+fs1, fs2 = 1200.0, 2400.0  
+
+
+wp = [2 * np.pi * fp1, 2 * np.pi * fp2]
+ws = [2 * np.pi * fs1, 2 * np.pi * fs2]
+
+# 2. CÁLCULO DE ORDEN Y SÍNTESIS CON SCIPY
+N_proto, Wn = signal.cheb1ord(wp, ws, Ap, As, analog=True)
+N_total = 2 * N_proto  
+z, p, k = signal.cheby1(N_proto, Ap, wp, btype='bandstop', analog=True, output='zpk')
+sos = signal.cheby1(N_proto, Ap, wp, btype='bandstop', analog=True, output='sos')
+b, a = signal.cheby1(N_proto, Ap, wp, btype='bandstop', analog=True, output='ba')
+
+# 3. DATOS DE CONSOLA Y CÓDIGO LATEX
+print("==================================================")
+print("       RESULTADOS DEL DISEÑO MATEMÁTICO          ")
+print("==================================================")
+print(f"Orden del prototipo pasabajo (N_proto): {N_proto}")
+print(f"Orden total del filtro rechazabanda (N_total): {N_total}")
+print(f"Ganancia global k: {k:.6e}")
+
+print("\n--- 1. CEROS DE H(s) [rad/s] ---")
+for i, zi in enumerate(z):
+    print(f"  z_{i+1} = {zi.real:+.4f} + j({zi.imag:+.4f})")
+
+print("\n--- 2. POLOS DE H(s) [rad/s] ---")
+for i, pi in enumerate(p):
+    print(f"  p_{i+1} = {pi.real:+.4f} + j({pi.imag:+.4f})")
+
+print("\n--- 3. SECCIONES DE SEGUNDO ORDEN (SOS): H(s) = H1(s) * H2(s) ---")
+for i, sec in enumerate(sos):
+    b0, b1, b2, a0, a1, a2 = sec
+    w0_sec = np.sqrt(a2)
+    Q_sec = w0_sec / a1
+    print(f"H_{i+1}(s) = ({b0:.6f}*s^2 + {b1:.6f}*s + {b2:.6e}) / (s^2 + {a1:.6f}*s + {a2:.6e})")
+    print(f"  --> w0_{i+1} = {w0_sec:.2f} rad/s ({w0_sec/(2*np.pi):.2f} Hz), Q_{i+1} = {Q_sec:.4f}\n")
+
+print("--- 4. FUNCIÓN DE TRANSFERENCIA POLINOMIAL H(s) ---")
+print(f"H(s) = ({b[0]:.6e}*s^4 + {b[2]:.6e}*s^2 + {b[4]:.6e}) /")
+print(f"       (s^4 + {a[1]:.6e}*s^3 + {a[2]:.6e}*s^2 + {a[3]:.6e}*s + {a[4]:.6e})\n")
+
+print("--- 5. CÓDIGO LATEX LISTO PARA EL INFORME ---")
+latex_str = rf"H(s) = \frac{{{b[0]:.6e} s^4 + {b[2]:.6e} s^2 + {b[4]:.6e}}}{{s^4 + {a[1]:.6e} s^3 + {a[2]:.6e} s^2 + {a[3]:.6e} s + {a[4]:.6e}}}"
+print(latex_str)
+print("==================================================\n")
+
+# 4. EVALUACIÓN FRECUENCIAL Y TEMPORAL
+f = np.logspace(1, 4.5, 2000)  
+w = 2 * np.pi * f
+
+w_eval, h = signal.freqs(b, a, worN=w)
+mag_db = 20 * np.log10(np.abs(h))
+
+phase_rad = np.unwrap(np.angle(h))
+phase_deg = np.rad2deg(phase_rad)
+
+# CORRECCIÓN RETARDO DE GRUPO ANALÓGICO: tau_g = -d(phi)/dw (en milisegundos)
+gd_ms = -np.gradient(phase_rad, w) * 1000
+
+# Respuesta al escalón unitario
+sistema = signal.lti(b, a)
+t, y_step = sistema.step(N=2000)
+t_ms = t * 1000
+
+# 5. FIGURA 1: CURVAS EN EL DOMINIO DE FRECUENCIA
+fig, axs = plt.subplots(4, 1, figsize=(10, 14), sharex=True)
+
+# 5.1 Magnitud Completa
+axs[0].semilogx(f, mag_db, 'b-', linewidth=2, label='Chebyshev I (Rechazabanda)')
+axs[0].axvline(fp1, color='green', linestyle='--', label=rf'$f_{{p1}} = {fp1:.0f}\text{{ Hz}}$')
+axs[0].axvline(fs1, color='red', linestyle='--', label=rf'$f_{{s1}} = {fs1:.0f}\text{{ Hz}}$')
+axs[0].axvline(fs2, color='red', linestyle='--', label=rf'$f_{{s2}} = {fs2:.0f}\text{{ Hz}}$')
+axs[0].axvline(fp2, color='green', linestyle='--', label=rf'$f_{{p2}} = {fp2:.0f}\text{{ Hz}}$')
+axs[0].axhline(-Ap, color='gray', linestyle=':', label=rf'$-A_p = {-Ap:.1f}\text{{ dB}}$')
+axs[0].axhline(-As, color='black', linestyle=':', label=rf'$-A_s = {-As:.1f}\text{{ dB}}$')
+axs[0].set_ylabel('Magnitud [dB]')
+axs[0].set_ylim([-50, 2])
+axs[0].grid(True, which='both', linestyle=':', alpha=0.7)
+axs[0].legend(loc='lower left', fontsize=8)
+axs[0].set_title('Respuesta Frecuencial: Filtro Rechazabanda Chebyshev I (Orden 4 Total)', fontsize=12, fontweight='bold')
+
+# 5.2 Zoom al Rizado de Magnitud (Banda de paso)
+axs[1].semilogx(f, mag_db, 'b-', linewidth=2, label='Rizado en Banda de Paso')
+axs[1].axhline(0, color='black', linestyle='-', linewidth=0.8)
+axs[1].axhline(-Ap, color='red', linestyle='--', label=rf'Límite $A_p = {-Ap:.1f}\text{{ dB}}$')
+axs[1].axvline(fp1, color='green', linestyle=':', label=rf'$f_{{p1}} = {fp1:.0f}\text{{ Hz}}$')
+axs[1].axvline(fp2, color='green', linestyle=':', label=rf'$f_{{p2}} = {fp2:.0f}\text{{ Hz}}$')
+axs[1].set_ylabel('Magnitud Zoom [dB]')
+axs[1].set_ylim([-1.5, 0.5])
+axs[1].grid(True, which='both', linestyle=':', alpha=0.7)
+axs[1].legend(loc='lower left', fontsize=8)
+
+# 5.3 Fase Desenrollada
+axs[2].semilogx(f, phase_deg, 'm-', linewidth=2)
+axs[2].set_ylabel(r'Fase Desenrollada [$^\circ$]')
+axs[2].grid(True, which='both', linestyle=':', alpha=0.7)
+
+# 5.4 Retardo de Grupo Corregido
+axs[3].semilogx(f, gd_ms, 'c-', linewidth=2)
+axs[3].set_xlabel('Frecuencia [Hz]')
+axs[3].set_ylabel('Retardo de Grupo [ms]')
+axs[3].grid(True, which='both', linestyle=':', alpha=0.7)
+
+plt.tight_layout()
+plt.show()
+
+# 6. FIGURA 2: RESPUESTA AL ESCALÓN (TIEMPO)
+plt.figure(figsize=(9, 4.5))
+plt.plot(t_ms, y_step, 'r-', linewidth=2, label='Respuesta al Escalón $y(t)$')
+plt.axhline(1.0, color='gray', linestyle='--', label=r'Entrada $u(t)=1\text{ V}$')
+plt.axhline(10**(-Ap/20), color='blue', linestyle=':', label=rf'Valor estacionario ($10^{{-A_p/20}} \approx {10**(-Ap/20):.4f}\text{{ V}}$)')
+plt.xlabel('Tiempo [ms]')
+plt.ylabel('Amplitud $y(t)$ [V]')
+plt.title('Comportamiento Temporal: Respuesta al Escalón Unitario', fontsize=11, fontweight='bold')
+plt.grid(True, linestyle=':', alpha=0.7)
+plt.legend(loc='lower right', fontsize=9)
+plt.tight_layout()
+plt.show()
+
+# 7. FIGURA 3: DIAGRAMA DE POLOS Y CEROS
+plt.figure(figsize=(6, 6))
+plt.scatter(np.real(z), np.imag(z), marker='o', s=90, facecolors='none', edgecolors='r', linewidth=2, label='Ceros')
+plt.scatter(np.real(p), np.imag(p), marker='x', s=90, color='b', linewidth=2, label='Polos')
+plt.axhline(0, color='black', linestyle='-', linewidth=0.8)
+plt.axvline(0, color='black', linestyle='-', linewidth=0.8)
+plt.xlabel(r'Re ($\sigma$) [rad/s]')
+plt.ylabel(r'Im ($j\omega$) [rad/s]')
+plt.title('Diagrama de Polos y Ceros en el Plano s')
+plt.grid(True, linestyle=':', alpha=0.7)
+plt.legend()
+plt.tight_layout()
+plt.show()
