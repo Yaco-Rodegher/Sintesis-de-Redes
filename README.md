@@ -1,10 +1,12 @@
 # Filtro Activo de Butterworth, Pasabajo de 1 kHz
 > **Asignatura:** Sintesis de Redes Activas - Universidad Nacional de Córdoba
-> **Integrantes:** >
+>
+> **Integrantes:** 
 >  * Quintero,Jonathan Damian
 >  * Gandiglio, Lucia Belén
 >  * Marchisio, Andres Ignasio
 >  * Rodegher, Yaco
+ 
 > **Profesor:** [Ferreyra, Pablo]
 
 ---
@@ -35,6 +37,8 @@ https://colab.research.google.com/drive/1nJKXVZwFNlXSYXvDSZrQWZm0XDFFcOY5?usp=sh
 ---
 
 ##  Ensayos, Pruebas y Resultados 
+Foto del circuito
+![](https://github.com/Yaco-Rodegher/Sintesis-de-Redes/blob/efa47f725f1a40361e203a0ef1a2f5aa10cf3ee7/Esquemas/foto%20del%20filtro.jpeg)
 Onda resultante 1V  de amplitud y frecuencia de 100 Hz
  ![](https://github.com/Yaco-Rodegher/Sintesis-de-Redes/blob/eb482bf34a5081d0f38e42e916bf66eefe4ed859/Esquemas/Salida%20del%20filtro.jpeg)
  Onda resultante 1V de amplitud y frecuencia de 8 kHz
