@@ -1,4 +1,4 @@
-# Filtro Activo de Butterworth, Pasabajo de 1 kHz
+# Filtro Activo de Chebyshev I, Pasabajo de 1 kHz
 > **Asignatura:** Sintesis de Redes Activas - Universidad Nacional de Córdoba
 >
 > **Integrantes:** 
