@@ -7,7 +7,7 @@
 >  * Marchisio, Andres Ignasio
 >  * Rodegher, Yaco
  
-> **Profesor:** [Ferreyra, Pablo]
+> **Profesor:**  Ing. Ferreyra, Pablo
 
 ---
 
